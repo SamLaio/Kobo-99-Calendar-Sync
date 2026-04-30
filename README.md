@@ -1,57 +1,50 @@
-# **📚 電子書 99 元特價自動同步工具 (E-Book-99-Sync)**
+## 📚 E-Book 99 特價自動同步工具
 
-這是一個專為電子書愛好者開發的自動化 Python 腳本。它能自動抓取 **Kobo (每週 99)** 與 **Pubu (精選 99)** 的特價書單，並將其精確地同步到你的 Google 行事曆中。
+這是一個自動化 Python 腳本，專門抓取 **Pubu** 與 **Kobo** 的 99 元限時特價書單，並自動同步至 **Google 日曆**。透過顏色區分與標題優化，讓你一眼掌握每日特價資訊。
 
-## **🌟 功能亮點**
+### ✨ 主要功能
+*   **多平台支援**：同時監控 Pubu 一日 99/即時 99 以及 Kobo 每週 99 書單。
+*   **智能分類標籤**：
+    *   `pubu一日99`：當日限定特價書籍。
+    *   `pubu即時99`：即將下架的限時特價書籍（由區塊內的 `~` 符號自動判定）。
+    *   `kobo99`：Kobo 每週更換的特價書單。
+*   **視覺優化**：
+    *   **自動去符號化**：移除標題中的《 》、[ ]、( ) 等符號，保持日曆介面整潔。
+    *   **顏色區分**：Pubu 使用 **青綠色 (Basil)**，Kobo 使用 **藍色**。
+*   **防重複機制**：採用「無符號純文字」比對技術，即使網頁標題微調或空格變動，也不會重複寫入日曆。
 
-*   **雙平台整合同步**：
-    *   **Kobo**：自動抓取官方網誌的每週蟬聯特價書單。
-    *   **Pubu**：精準解析 Pubu 99 選書頁面，獲取全月特價清單。
-*   **視覺化標記**：
-    *   🟡 **Kobo** 事件自動設為黃色 (`colorId: 5`)。
-    *   🔴 **Pubu** 事件自動設為番茄紅 (`colorId: 11`)。
-*   **智慧去重機制**：透過嚴格的書名清洗與日期比對，確保行事曆中不會出現重複的事件。
-*   **Cloudflare 繞過**：使用 `cloudscraper` 模擬真實瀏覽器行為，穩定抓取數據。
-*   **精準選擇器解析**：針對 Pubu 的特殊結構（`.in_book` 容器），實作了精準的 CSS 選擇器解析（`.container h2 a` 與 `.descript`），確保抓取內容無雜訊。
+### 🛠️ 環境需求
+*   Python 3.x
+*   Google Calendar API 憑證 (`credentials.json`)
+*   必要套件：
+    ```bash
+    pip install cloudscraper beautifulsoup4 google-api-python-client google-auth-oauthlib
+    ```
 
-## **🛠️ 安裝需求**
+### 🚀 安裝與設定
+1.  **取得 Google API 憑證**：
+    *   前往 [Google Cloud Console](https://console.cloud.google.com/)。
+    *   啟用 Google Calendar API。
+    *   下載 OAuth 2.0 憑證，並將其更名為 `credentials.json` 放置於腳本目錄。
+2.  **設定日曆 ID**：
+    *   在 `main.py` 中填入你的 `CALENDAR_ID`（通常是 Google 帳號或特定的日曆 ID）。
+3.  **執行同步**：
+```bash
+    python sync_books.py
+```
 
-*   Python 3.8+
-*   Google Cloud Console 憑證 (`credentials.json`)
-*   安裝必要套件：  
-    `pip install cloudscraper beautifulsoup4 google-api-python-client google-auth-httplib2 google-auth-oauthlib`
+* 首次執行會開啟瀏覽器進行身份驗證，成功後會生成 `token.json`。
 
-## **🚀 快速開始**
+### 📂 程式邏輯說明
+*   **`clean_title_display`**：負責美化標題，移除礙眼的書名號與括號。
+*   **`clean_for_compare`**：核心去重邏輯，將標題轉為純文字後比對 Google 日曆現有事件。
+*   **`get_pubu_books`**：
+    *   透過 `~` 或 `～` 符號判定是否為「即時（即將下架）」特價。
+    *   自動處理 Pubu 的網址拼接問題，防止網址重複疊加。
+*   **`get_kobo_books`**：
+    *   自動計算當前週數並嘗試獲取正確的 Blog URL。
+    *   具備回溯機制，確保能正確抓取日期區塊內的書籍。
 
-### **1. 準備 Google API 憑證**
-
-1.  前往 [Google Cloud Console](https://console.cloud.google.com/) 建立專案。
-2.  啟用 **Google Calendar API**。
-3.  在「憑證」頁面建立一個 **OAuth 用戶端 ID**（類型：電腦版應用程式）。
-4.  下載 JSON 檔案並重新命名為 `credentials.json`，放入腳本目錄。
-
-### **2. 設定日曆 ID**
-
-在腳本中修改 `CALENDAR_ID` 變數為你的 Google 日曆 ID。
-
-### **3. 首次執行授權**
-
-第一次執行時會開啟瀏覽器要求授權：  
-`python main.py`  
-授權後產生的 `token.json` 將供日後自動化使用。
-
-## **📅 NAS 自動化部署 (Synology)**
-
-1.  將 `main.py`、`credentials.json`、`token.json` 上傳至 NAS 資料夾。
-2.  進入 **「控制台」 > 「任務排程器」**。
-3.  新增「使用者定義的指令碼」：
-    *   **帳號**：選擇你的使用者。
-    *   **排程**：建議設定為每日凌晨執行。
-    *   **指令範例**：  
-        ``python3 /volume1/scripts/ebook_sync/main.py >> /volume1/scripts/ebook_sync/log.txt 2>&1``
-
-## **📝 說明與限制**
-
-*   **書名清洗**：腳本會自動移除書名中的特殊符號，以提升行事曆比對的準確度。
-*   **日期過濾**：自動從網頁文字中提取 `MM/DD` 格式日期，排除「限定」、「下架」等無關字眼。
-*   **免責聲明**：本工具僅供個人學習與使用，請尊重平台版權。
+### 📝 備註
+*   本腳本建議配合 `crontab` 或 NAS 的任務排程器使用（建議每日執行一次）。
+*   同步時會將「原始完整書名」存放在日曆事件的「說明」欄位中，方便備查。
