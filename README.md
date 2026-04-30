@@ -30,7 +30,7 @@
     *   在 `main.py` 中填入你的 `CALENDAR_ID`（通常是 Google 帳號或特定的日曆 ID）。
 3.  **執行同步**：
 ```bash
-    python sync_books.py
+    python main.py
 ```
 
 * 首次執行會開啟瀏覽器進行身份驗證，成功後會生成 `token.json`。
