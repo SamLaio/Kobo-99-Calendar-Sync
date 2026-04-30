@@ -1,55 +1,67 @@
-# **Kobo 每日 99 自動同步工具 (Kobo-99-Calendar-Sync)**
+已經為你更新了 `README.md` 內容。這份說明文件現在包含了 **Kobo** 與 **Pubu** 雙平台的同步說明、精準的解析邏輯介紹，以及針對雙來源的顏色標記說明。
 
-這是一個自動化 Python 腳本，能自動從 Kobo 官方網誌抓取「每週 99 元」特價書單，並將其精確地同步到你的 Google 行事曆中。
+---
+
+# 📚 電子書 99 元特價自動同步工具 (E-Book-99-Sync)
+
+這是一個專為電子書愛好者開發的自動化 Python 腳本。它能自動抓取 **Kobo (每週 99)** 與 **Pubu (精選 99)** 的特價書單，並將其精確地同步到你的 Google 行事曆中。
 
 ## **🌟 功能亮點**
 
-* **全週自動同步**：一次執行即可抓取整週的特價資訊，並按日期填入行事曆。  
-* **重複檢查機制**：具備嚴格的標題比對功能，重複執行腳本也不會產生重複事件。  
-* **Cloudflare 繞過**：集成 cloudscraper，有效應對官方網誌的機器人防護。  
-* **純淨書名解析**：自動清洗書名中的特殊字元與標點，確保在各種裝置上完美顯示。  
-* **支援全天事件**：以全天行程方式呈現，不干擾你原有的作息排程。
+*   **雙平台整合同步**：
+    *   **Kobo**：自動抓取官方網誌的每週蟬聯特價書單。[cite: 1]
+    *   **Pubu**：精準解析 Pubu 99 選書頁面，獲取全月特價清單。[cite: 1]
+*   **視覺化標記**：
+    *   🟡 **Kobo** 事件自動設為黃色 (`colorId: 5`)。[cite: 1]
+    *   🔴 **Pubu** 事件自動設為番茄紅 (`colorId: 11`)。[cite: 1]
+*   **智慧去重機制**：透過嚴格的書名清洗與日期比對，確保行事曆中不會出現重複的事件。[cite: 1]
+*   **Cloudflare 繞過**：使用 `cloudscraper` 模擬真實瀏覽器行為，穩定抓取數據。[cite: 1]
+*   **精準選擇器解析**：針對 Pubu 的特殊結構（`.in_book` 容器），實作了精準的 CSS 選擇器解析，確保抓取內容無雜訊。[cite: 1]
 
 ## **🛠️ 安裝需求**
 
-* Python 3.8+  
-* Google Cloud Console 專案與相關憑證 (credentials.json)  
-* 安裝必要套件：  
-  `pip install cloudscraper beautifulsoup4 google-api-python-client google-auth-httplib2 google-auth-oauthlib`
+*   **Python 3.8+**
+*   **Google Cloud Console 憑證** (`credentials.json`)[cite: 1]
+*   **必要套件安裝**：
+    ```bash
+    pip install cloudscraper beautifulsoup4 google-api-python-client google-auth-httplib2 google-auth-oauthlib
+    ```
 
 ## **🚀 快速開始**
 
-### **1\. 取得 Google API 憑證**
+### **1. 準備 Google API 憑證**
+1.  前往 [Google Cloud Console](https://console.cloud.google.com/) 建立專案。[cite: 1]
+2.  啟用 **Google Calendar API**。[cite: 1]
+3.  在「憑證」頁面建立一個 **OAuth 用戶端 ID**（類型：電腦版應用程式）。[cite: 1]
+4.  下載 JSON 檔案並重新命名為 `credentials.json`，放入腳本目錄。[cite: 1]
 
-1. 前往 Google Cloud Console 建立新專案。  
-2. 啟用 **Google Calendar API**。  
-3. 在「OAuth 同意畫面」設定測試使用者（填入你自己的 Gmail）。  
-4. 在「憑證」建立一個 **OAuth 用戶端 ID**（類型選「電腦版應用程式」）。  
-5. 下載 JSON 並重新命名為 credentials.json，放入專案目錄。
+### **2. 設定日曆 ID**
+在腳本中修改 `CALENDAR_ID` 變數：
+```python
+CALENDAR_ID = '你的日曆ID@group.calendar.google.com'
+```
 
-### **2\. 設定日曆 ID**
-
-在腳本檔案中，找到 CALENDAR\_ID 變數，填入你的 Google 日曆 ID（可在 Google 日曆設定中的「整合日曆」區塊找到）。
-
-### **3\. 首次執行**
-
-第一次執行時會自動開啟瀏覽器要求授權：  
-`python main.py`  
-授權後，目錄下會生成 token.json，之後執行皆無需手動登入。
+### **3. 首次執行授權**
+第一次執行時會開啟瀏覽器要求授權 Google 日曆權限：
+```bash
+python main.py
+```
+授權後產生的 `token.json` 將供日後自動化使用。[cite: 1]
 
 ## **📅 NAS 自動化部署 (Synology)**
 
-如果你想在 NAS 上每天自動運行：
+1.  將 `main.py`、`credentials.json`、`token.json` 上傳至 NAS 資料夾（如 `/volume1/scripts/kobo_pubu/`）。[cite: 1]
+2.  進入 **「控制台」 > 「任務排程器」**。[cite: 1]
+3.  新增「使用者定義的指令碼」：
+    *   **排程**：建議設定為每日凌晨 03:00 執行。[cite: 1]
+    *   **指令範例**：
+        ```bash
+        python3 /volume1/scripts/kobo_pubu/main.py >> /volume1/scripts/kobo_pubu/log.txt 2>&1
+        ```
 
-1. 將 main.py、credentials.json、token.json 上傳到 NAS 資料夾。  
-2. 開啟 **「控制台」 \> 「任務排程器」**。  
-3. 新增一個「使用者定義的指令碼」：  
-   * **帳號**：選擇你的使用者。  
-   * **排程**：建議設定為「每天」。  
-   * **執行指令**（範例路徑）：  
-     `python3 /volume1/scripts/kobo99/main.py >> /volume1/scripts/kobo99/log.txt 2>&1`
+## **📝 說明與限制**
 
-## **📝 備註**
-
-* 本腳本僅供個人學習與使用，請勿用於大規模抓取。  
-* 書單資訊來源為 Kobo 台灣官方網誌。
+*   **書名清洗**：腳本會自動移除書名中的特殊符號，以提升行事曆比對的準確度。[cite: 1]
+*   **日期過濾**：自動從網頁文字中提取 `MM/DD` 格式日期，排除「限定」、「下架」等無關字眼。[cite: 1]
+*   **免責聲明**：本工具僅供個人學術研究與讀書筆記使用，請尊重平台版權。[cite: 1]
+```
