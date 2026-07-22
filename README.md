@@ -1,50 +1,121 @@
-## 📚 E-Book 99 特價自動同步工具
+# E-Book 特價自動同步工具
 
-這是一個自動化 Python 腳本，專門抓取 **Pubu** 與 **Kobo** 的 99 元限時特價書單，並自動同步至 **Google 日曆**。透過顏色區分與標題優化，讓你一眼掌握每日特價資訊。
+抓取 Kobo、Pubu、誠品線上的電子書特價清單，並同步成 Google Calendar 全天事件。
 
-### ✨ 主要功能
-*   **多平台支援**：同時監控 Pubu 一日 99/即時 99 以及 Kobo 每週 99 書單。
-*   **智能分類標籤**：
-    *   `pubu一日99`：當日限定特價書籍。
-    *   `pubu即時99`：即將下架的限時特價書籍（由區塊內的 `~` 符號自動判定）。
-    *   `kobo99`：Kobo 每週更換的特價書單。
-*   **視覺優化**：
-    *   **自動去符號化**：移除標題中的《 》、[ ]、( ) 等符號，保持日曆介面整潔。
-    *   **顏色區分**：Pubu 使用 **青綠色 (Basil)**，Kobo 使用 **藍色**。
-*   **防重複機制**：採用「無符號純文字」比對技術，即使網頁標題微調或空格變動，也不會重複寫入日曆。
+## 功能
 
-### 🛠️ 環境需求
-*   Python 3.x
-*   Google Calendar API 憑證 (`credentials.json`)
-*   必要套件：
-    ```bash
-    pip install cloudscraper beautifulsoup4 google-api-python-client google-auth-oauthlib
-    ```
+- Kobo 每週 99 元書單
+- Pubu 99 元精選/即時特價
+- 誠品活動頁特價書單，預設抓 `CU202501-00235`
+- 以書籍連結和清理後標題避免重複建立事件
+- 依來源設定 Google Calendar 顏色：
+  - Kobo: `colorId=5`
+  - Pubu: `colorId=10`
+  - 誠品: `colorId=11`
+- 單站測試工具可輸出 TSV 到 `test/`
 
-### 🚀 安裝與設定
-1.  **取得 Google API 憑證**：
-    *   前往 [Google Cloud Console](https://console.cloud.google.com/)。
-    *   啟用 Google Calendar API。
-    *   下載 OAuth 2.0 憑證，並將其更名為 `credentials.json` 放置於腳本目錄。
-2.  **設定日曆 ID**：
-    *   在 `main.py` 中填入你的 `CALENDAR_ID`（通常是 Google 帳號或特定的日曆 ID）。
-3.  **執行同步**：
+## 檔案
+
+- `main.py`: 正式同步到 Google Calendar
+- `kobo.py`: Kobo 單站抓取測試
+- `pubu.py`: Pubu 單站抓取測試
+- `eslite.py`: 誠品單站抓取測試
+- `requirements.txt`: Python 套件
+
+## 安裝
+
 ```bash
-    python main.py
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-* 首次執行會開啟瀏覽器進行身份驗證，成功後會生成 `token.json`。
+Linux/macOS:
 
-### 📂 程式邏輯說明
-*   **`clean_title_display`**：負責美化標題，移除礙眼的書名號與括號。
-*   **`clean_for_compare`**：核心去重邏輯，將標題轉為純文字後比對 Google 日曆現有事件。
-*   **`get_pubu_books`**：
-    *   透過 `~` 或 `～` 符號判定是否為「即時（即將下架）」特價。
-    *   自動處理 Pubu 的網址拼接問題，防止網址重複疊加。
-*   **`get_kobo_books`**：
-    *   自動計算當前週數並嘗試獲取正確的 Blog URL。
-    *   具備回溯機制，確保能正確抓取日期區塊內的書籍。
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-### 📝 備註
-*   本腳本建議配合 `crontab` 或 NAS 的任務排程器使用（建議每日執行一次）。
-*   同步時會將「原始完整書名」存放在日曆事件的「說明」欄位中，方便備查。
+## Google Calendar 設定
+
+1. 到 Google Cloud Console 啟用 Google Calendar API。
+2. 建立 OAuth Desktop App 憑證。
+3. 下載後命名為 `credentials.json`，放在專案根目錄。
+4. 設定日曆 ID 環境變數。
+
+PowerShell:
+
+```powershell
+$env:CALENDAR_ID="your_calendar_id@group.calendar.google.com"
+python main.py
+```
+
+Linux/macOS:
+
+```bash
+CALENDAR_ID="your_calendar_id@group.calendar.google.com" python main.py
+```
+
+首次執行會開瀏覽器授權，成功後產生 `token.json`。`credentials.json`、`token.json` 已加入 `.gitignore`，不要提交。
+
+## 誠品活動設定
+
+預設只抓：
+
+```text
+CU202501-00235
+```
+
+要改抓其他誠品活動頁，用 `ESLITE_EXHIBITS` 覆蓋，多個用逗號分隔：
+
+```powershell
+$env:ESLITE_EXHIBITS="CU202501-00235,CU202502-00120"
+$env:CALENDAR_ID="your_calendar_id@group.calendar.google.com"
+python main.py
+```
+
+也可以填完整 URL：
+
+```powershell
+$env:ESLITE_EXHIBITS="https://www.eslite.com/exhibitions/CU202501-00235"
+```
+
+## 單站測試
+
+這些指令不會寫入 Google Calendar，只會抓資料並輸出 TSV。若 `-o` 只給檔名，輸出會自動放到 `test/`。
+
+```bash
+python kobo.py -o kobo_test.tsv
+python pubu.py -o pubu_test.tsv
+python eslite.py -o eslite_test.tsv
+```
+
+誠品可指定活動頁：
+
+```bash
+python eslite.py https://www.eslite.com/exhibitions/CU202501-00235 -o eslite_test.tsv
+```
+
+## 排程
+
+建議每天跑一次。Linux cron 範例：
+
+```cron
+0 8 * * * cd /path/to/Kobo-99-Calendar-Sync && CALENDAR_ID="your_calendar_id@group.calendar.google.com" /path/to/.venv/bin/python main.py >> sync.log 2>&1
+```
+
+Windows 工作排程器可執行：
+
+```powershell
+cd D:\github\Kobo-99-Calendar-Sync
+$env:CALENDAR_ID="your_calendar_id@group.calendar.google.com"
+.\.venv\Scripts\python.exe main.py
+```
+
+## 注意
+
+- Kobo 可能檢查 TLS 指紋，建議安裝並保留 `curl_cffi`。
+- 誠品價格 API 一次查太多商品可能漏資料，程式固定每 10 筆查一次。
+- 不要提交 `credentials.json`、`token.json`、`test/`、`*.log`。

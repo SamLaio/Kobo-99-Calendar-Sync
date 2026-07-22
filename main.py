@@ -6,6 +6,8 @@ import random
 import re
 import logging
 import sys
+from urllib.parse import urlparse
+from urllib.request import Request as UrlRequest, urlopen
 import cloudscraper
 from bs4 import BeautifulSoup
 from google.auth.transport.requests import Request
@@ -20,8 +22,8 @@ except ImportError:
     curl_requests = None
 
 # ================= 設定區 =================
-# 請在此填入你的 Google 日曆 ID
-CALENDAR_ID = 'Google 日曆 ID'
+# 請用環境變數設定 Google 日曆 ID，避免把個人日曆 ID 寫進版控。
+CALENDAR_ID = os.getenv('CALENDAR_ID', '').strip()
 # ==========================================
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -51,6 +53,14 @@ KOBO_CURL_HEADERS = {
     'Referer': 'https://www.kobo.com/zh/blog',
 }
 KOBO_IMPERSONATE = os.getenv('KOBO_IMPERSONATE', 'chrome124').strip() or 'chrome124'
+ESLITE_BOOK_EXHIBIT_API = "https://athena.eslite.com/api/v1/book_exhibits/{exhibit_id}"
+ESLITE_PRICE_API = "https://athena.eslite.com/api/v2/products/{product_ids}/prices"
+ESLITE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0 Safari/537.36"
+)
+DEFAULT_ESLITE_EXHIBITS = ['CU202501-00235']
 
 logging.basicConfig(
     level=logging.INFO,
@@ -143,13 +153,117 @@ def resolve_month_day(month, day, anchor_date, prefer_future=False, past_window_
 
     return min(candidates, key=lambda d: abs((d - anchor_date).days))
 
+def parse_eslite_exhibit_id(value):
+    """
+    支援直接填誠品活動 ID 或完整 exhibitions URL。
+    """
+    if value.startswith("http://") or value.startswith("https://"):
+        parts = [part for part in urlparse(value).path.split("/") if part]
+        if len(parts) >= 2 and parts[-2] == "exhibitions":
+            return parts[-1]
+        raise ValueError("URL does not look like an eslite exhibitions page")
+    return value
+
+ESLITE_EXHIBITS = [
+    parse_eslite_exhibit_id(exhibit.strip())
+    for exhibit in os.getenv('ESLITE_EXHIBITS', ','.join(DEFAULT_ESLITE_EXHIBITS)).split(',')
+    if exhibit.strip()
+]
+
+def fetch_eslite_json(url):
+    """
+    誠品 API 偶爾會擋一般 requests；優先用 curl_cffi 模擬 Chrome。
+    """
+    if curl_requests:
+        response = curl_requests.get(
+            url,
+            headers={"User-Agent": ESLITE_USER_AGENT},
+            impersonate="chrome124",
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    request = UrlRequest(url, headers={"User-Agent": ESLITE_USER_AGENT})
+    with urlopen(request, timeout=30) as response:
+        import json
+        return json.load(response)
+
+def iter_eslite_products(exhibit):
+    seen = set()
+
+    def add_product(product, section):
+        guid = str(product.get("product_guid") or "")
+        if not guid or guid in seen:
+            return None
+        seen.add(guid)
+        return {
+            '商品': product.get("name") or "",
+            '金額': "",
+            '區塊': section or "",
+            '作者': product.get("author") or "",
+            'guid': guid,
+        }
+
+    for content in exhibit.get("contents") or []:
+        product = content.get("product")
+        if product:
+            row = add_product(product, content.get("title") or content.get("name"))
+            if row:
+                yield row
+
+        for book_list in content.get("book_list") or []:
+            for product in book_list.get("products") or []:
+                row = add_product(product, book_list.get("name") or "")
+                if row:
+                    yield row
+
+def fetch_eslite_prices(product_ids, batch_size=10):
+    prices = {}
+    for index in range(0, len(product_ids), batch_size):
+        batch = product_ids[index:index + batch_size]
+        url = ESLITE_PRICE_API.format(product_ids=",".join(batch))
+        for item in fetch_eslite_json(url):
+            guid = str(item.get("guid") or "")
+            if guid:
+                prices[guid] = item.get("final_price")
+    return prices
+
+def fetch_eslite_specials(exhibit_id):
+    exhibit = fetch_eslite_json(ESLITE_BOOK_EXHIBIT_API.format(exhibit_id=exhibit_id))
+    products = list(iter_eslite_products(exhibit))
+    prices = fetch_eslite_prices([product['guid'] for product in products])
+    for product in products:
+        product['活動'] = exhibit.get("name") or exhibit_id
+        product['活動ID'] = exhibit_id
+        product['金額'] = prices.get(product['guid'], "")
+    return products
+
+def parse_eslite_sale_date(*texts):
+    """
+    從誠品區塊文字解析特價截止日；沒有寫日期就視為今天仍在特價。
+    """
+    anchor_date = datetime.datetime.now().date()
+    text = " ".join(text for text in texts if text)
+    match = re.search(r'(?:至|到|~|～)\s*(\d{1,2})/(\d{1,2})', text)
+    if match:
+        return resolve_month_day(match.group(1), match.group(2), anchor_date, prefer_future=True).isoformat()
+
+    compact_match = re.search(r'\d{4}\s*[-~～]\s*(\d{2})(\d{2})', text)
+    if compact_match:
+        return resolve_month_day(compact_match.group(1), compact_match.group(2), anchor_date, prefer_future=True).isoformat()
+
+    return anchor_date.isoformat()
+
 def get_kobo_week_urls(anchor_date):
     """
-    產生本週與下週 Kobo 99 URL，正確處理 ISO 週次跨年。
+    產生 Kobo 99 URL；Kobo 99 文章以週四為一期起點，不是 ISO 週一。
     """
     urls = []
-    for days in (0, 7):
-        target_date = anchor_date + datetime.timedelta(days=days)
+    active_thursday = anchor_date - datetime.timedelta(days=(anchor_date.weekday() - 3) % 7)
+    week_offsets = (7, 0, -7) if anchor_date.weekday() == 2 else (0, 7, -7)
+    for days in week_offsets:
+        target_date = active_thursday + datetime.timedelta(days=days)
         iso_year, iso_week, _ = target_date.isocalendar()
         url = f"https://www.kobo.com/zh/blog/weekly-dd99-{iso_year}-w{iso_week:02d}"
         week_anchor = datetime.date.fromisocalendar(iso_year, iso_week, 4)
@@ -254,6 +368,9 @@ def get_kobo_books():
     for url, week_anchor in urls:
         try:
             resp = fetch_kobo_page(url)
+            if resp.status_code == 404:
+                time.sleep(random.uniform(2, 4))
+                resp = fetch_kobo_page(f"{url}?nocache={int(time.time())}")
             if resp.status_code != 200:
                 logging.warning(f"⚠️ Kobo 頁面讀取失敗: {resp.status_code} - {url}")
                 continue
@@ -297,6 +414,42 @@ def get_kobo_books():
             continue
     return books
 
+def get_eslite_books():
+    """
+    抓取誠品活動頁特價書單。
+    """
+    books = []
+    logging.info("正在檢查誠品活動頁...")
+    for exhibit_id in ESLITE_EXHIBITS:
+        try:
+            specials = fetch_eslite_specials(exhibit_id)
+            logging.info(f"誠品 {exhibit_id} 抓到 {len(specials)} 筆")
+            for item in specials:
+                raw_title = item.get('商品', '')
+                display_title = clean_title_display(re.sub(r'\s*\(電子書\)\s*$', '', raw_title))
+                price = item.get('金額', '')
+                target_date = parse_eslite_sale_date(item.get('區塊', ''), item.get('活動', ''))
+                link = f"https://www.eslite.com/product/{item.get('guid')}"
+                summary = f"誠品{price} {display_title}" if price else f"誠品 {display_title}"
+                books.append({
+                    'summary': summary,
+                    'compare_key': clean_for_compare(summary),
+                    'description': (
+                        f"原始書名：{raw_title}\n"
+                        f"活動：{item.get('活動', '')}\n"
+                        f"區塊：{item.get('區塊', '')}\n"
+                        f"金額：{price}\n"
+                        f"連結：{link}\n"
+                        "(自動同步)"
+                    ),
+                    'link': link,
+                    'date': target_date,
+                    'color': '11' # 紅色
+                })
+        except Exception:
+            logging.exception(f"❌ 誠品抓取失敗: {exhibit_id}")
+    return books
+
 def get_calendar_service():
     """
     初始化 Google Calendar API 服務。
@@ -330,9 +483,12 @@ def sync_all():
     """
     執行主同步邏輯。
     """
-    all_books = get_kobo_books() + get_pubu_books()
+    if not CALENDAR_ID:
+        raise RuntimeError("請先設定 CALENDAR_ID 環境變數")
+
+    all_books = get_kobo_books() + get_pubu_books() + get_eslite_books()
     if not all_books:
-        logging.warning("⚠️ 未抓到任何 Kobo/Pubu 書籍，略過日曆同步")
+        logging.warning("⚠️ 未抓到任何 Kobo/Pubu/誠品 書籍，略過日曆同步")
         return
     
     service = get_calendar_service()
